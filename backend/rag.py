@@ -30,7 +30,7 @@ _collection = chromadb.PersistentClient(path=str(CHROMA_DIR)).get_or_create_coll
 _client: Optional[OpenAI] = None
 
 
-def _llm() -> OpenAI:
+def get_llm_client() -> OpenAI:
     global _client
     if _client is None:
         api_key = os.getenv("GEMINI_API_KEY")
@@ -83,32 +83,21 @@ def ingest_document(file_path) -> dict:
     return {"filename": source, "chunks": len(chunks)}
 
 
-def answer_question(question: str, top_k: int = 4) -> dict:
+def search_documents(query: str, top_k: int = 4, source: Optional[str] = None) -> List[dict]:
     count = _collection.count()
     if count == 0:
-        return {"answer": "No documents have been uploaded yet.", "sources": []}
-
+        return []
     results = _collection.query(
-        query_texts=[question],
+        query_texts=[query],
         n_results=min(top_k, count),
+        where={"source": source} if source else None,
     )
-    documents = results["documents"][0]
-    metadatas = results["metadatas"][0]
+    return [
+        {"source": meta["source"], "chunk": meta["chunk"], "text": doc}
+        for doc, meta in zip(results["documents"][0], results["metadatas"][0])
+    ]
 
-    context = "\n\n".join(
-        f"[{meta['source']} #{meta['chunk']}]\n{doc}" for doc, meta in zip(documents, metadatas)
-    )
-    response = _llm().chat.completions.create(
-        model=CHAT_MODEL,
-        temperature=0,
-        messages=[
-            {
-                "role": "system",
-                "content": "Answer the question using only the provided context. "
-                "If the answer is not in the context, say you don't know.",
-            },
-            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
-        ],
-    )
-    sources = list(dict.fromkeys(meta["source"] for meta in metadatas))
-    return {"answer": response.choices[0].message.content, "sources": sources}
+
+def list_documents() -> List[str]:
+    metadatas = _collection.get(include=["metadatas"])["metadatas"]
+    return sorted({meta["source"] for meta in metadatas})
