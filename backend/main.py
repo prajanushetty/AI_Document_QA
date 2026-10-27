@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAIError
 from pydantic import BaseModel
 
-from rag import ingest_document, answer_question, UPLOAD_DIR
+from agent import answer_question
+from rag import ingest_document, list_documents, UPLOAD_DIR
 
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx"}
 
@@ -21,12 +22,16 @@ app.add_middleware(
 
 class QuestionRequest(BaseModel):
     question: str
-    top_k: int = 4
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/documents")
+def documents():
+    return {"documents": list_documents()}
 
 
 @app.post("/upload")
@@ -52,6 +57,6 @@ def ask(request: QuestionRequest):
     if not request.question.strip():
         raise HTTPException(400, "Question must not be empty.")
     try:
-        return answer_question(request.question, request.top_k)
+        return answer_question(request.question)
     except (RuntimeError, OpenAIError) as e:
         raise HTTPException(500, str(e))
